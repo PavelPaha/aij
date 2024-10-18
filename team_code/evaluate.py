@@ -13,13 +13,15 @@ from transformers.utils import logging
 from transformers import (AutoModelForCausalLM, AutoTokenizer, AutoConfig)
 
 from team_code.mm_utils import (process_image, process_video, process_audio, tokenizer_multimodal_token,
-                      get_model_name_from_path, KeywordsStoppingCriteria)
+                                get_model_name_from_path, KeywordsStoppingCriteria)
 from team_code.constants import (NUM_FRAMES, DEFAULT_IMAGE_TOKEN, DEFAULT_VIDEO_TOKEN,
-                       DEFAULT_AUDIO_TOKEN, MODAL_INDEX_MAP)
+                                 DEFAULT_AUDIO_TOKEN, MODAL_INDEX_MAP)
 
 from team_code.projector import load_mm_projector
 from team_code.conversation import conv_llama2, conv_llava_llama2
 from team_code.videollama2_mistral import Videollama2MistralForCausalLM, Videollama2MistralConfig
+
+from huggingface_hub import hf_hub_download
 
 logging.set_verbosity("ERROR")
 
@@ -43,8 +45,8 @@ def setup_model_and_tokenizer(device_map: Optional[str] = "auto",
     Load model, tokenizer and processor from checkpoint.
     Note: there is no Internet access!
     """
-    model_path = "/app/DAMO-NLP-SG/VideoLLaMA2-7B"
-    vision_tower_model_path = "/app/clip-vit-large-patch14-336"
+    model_path = "team_code/app/VideoLLaMA2-7B"
+    vision_tower_model_path = "team_code/app/clip-vit-large-patch14-336"
 
     if not os.path.exists(model_path):
         print(f"Model's checkpoint was not found by path: {model_path}")
@@ -55,7 +57,8 @@ def setup_model_and_tokenizer(device_map: Optional[str] = "auto",
         raise FileExistsError(f"Model's checkpoint was not found by path: {vision_tower_model_path}")
 
     kwargs = {"device_map": device_map, **kwargs}
-
+    device = 'cpu'
+    print(f'device is {device}')
     if device != "cuda":
         kwargs['device_map'] = {"": device}
     kwargs['torch_dtype'] = torch.float16
@@ -81,11 +84,13 @@ def setup_model_and_tokenizer(device_map: Optional[str] = "auto",
     # NOTE: model adopts the same processor for processing image and video.
     processor = {
         'image': partial(process_image, processor=vision_tower.image_processor, aspect_ratio=None),
-        'video': partial(process_video, processor=vision_tower.image_processor, aspect_ratio=None, num_frames=num_frames),
+        'video': partial(process_video, processor=vision_tower.image_processor, aspect_ratio=None,
+                         num_frames=num_frames),
         'audio': partial(process_audio, processor=None)
     }
 
     return model, processor, tokenizer
+
 
 def process_data_sample(sample: Dict[str, Any],
                         processor,
@@ -134,7 +139,8 @@ def process_data_sample(sample: Dict[str, Any],
 
     if not os.path.exists(modality_path):
         print(f"Error while loading modality (`{modality_type}`) data, can't find a file by path: `{modality_path}`")
-        raise FileNotFoundError(f"Error while loading modality (`{modality_type}`) data, can't find a file by path: `{modality_path}`")
+        raise FileNotFoundError(
+            f"Error while loading modality (`{modality_type}`) data, can't find a file by path: `{modality_path}`")
 
     modality_features = processor[modality_type](modality_path)
     if 'return_dtype' in kwargs:
@@ -251,7 +257,6 @@ def evaluate_generative(sample: Dict[str, Any],
     return outputs
 
 
-
 def evaluate_ppl(sample: Dict[str, Any],
                  model: torch.nn.Module, tokenizer,
                  modality_type: Optional[str] = 'video', **kwargs) -> int:
@@ -286,7 +291,7 @@ def evaluate_ppl(sample: Dict[str, Any],
         modality_features = sample.get(modality_type, None)
         if modality_features is None:
             raise ValueError(f"Modality type: {modality_type} was not found in input data!")
-            
+
         tensor = modality_features.half().to(model.device)  # as torch tensor
         tensor = [(tensor, modality_type)]
 

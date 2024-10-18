@@ -192,6 +192,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dataset_filename = args.input_path
+    print(f'Dataset filename: {dataset_filename}')
     dataset = read_data(dataset_filename)
 
     disable_torch_init()
